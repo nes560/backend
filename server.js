@@ -1,6 +1,6 @@
 const express = require('express');
 const mysql = require('mysql2');
-const cors = require('cors');
+const cors = require('cors'); // Pastikan ini ada
 const bodyParser = require('body-parser');
 const multer = require('multer'); 
 const path = require('path');
@@ -8,20 +8,26 @@ const fs = require('fs');
 
 const app = express();
 // Gunakan environment variable untuk PORT jika ada, default ke 3000
+// Railway otomatis mengisi process.env.PORT
 const PORT = process.env.PORT || 3000;
 
+// --- PERBAIKAN CORS (SOLUSI ERROR 502/BLOCKED) ---
+// 1. Izinkan semua domain (Frontend Railway & Localhost)
+app.use(cors()); 
+
+// 2. Tangani Preflight Request (OPTIONS) secara eksplisit
+// Ini wajib agar browser tidak error saat cek keamanan sebelum kirim data
+app.options('*', cors());
+
 // --- MIDDLEWARE ---
-app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // --- KONFIGURASI FOLDER UPLOAD ---
-// Pastikan folder uploads ada, jika tidak buat baru
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)){
     fs.mkdirSync(uploadDir);
 }
-// Serve file statis (agar foto bisa diakses lewat URL)
 app.use('/uploads', express.static(uploadDir));
 
 // --- KONFIGURASI MULTER (UPLOAD FOTO) ---
@@ -30,43 +36,46 @@ const storage = multer.diskStorage({
         cb(null, 'uploads/');
     },
     filename: (req, file, cb) => {
-        // Buat nama file unik: foto-TIMESTAMP-RANDOM.jpg
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, 'foto-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 const upload = multer({ storage: storage });
 
-// --- KONEKSI DATABASE (PERBAIKAN UTAMA DI SINI) ---
+// --- KONEKSI DATABASE ---
 const db = mysql.createPool({
     host: process.env.MYSQLHOST || 'localhost',
     user: process.env.MYSQLUSER || 'root',
     password: process.env.MYSQLPASSWORD || '',
-    database: process.env.MYSQLDATABASE || 'railway',
+    // Di Railway otomatis pakai 'railway', di laptop pakai 'tukang_db'
+    database: process.env.MYSQLDATABASE || 'tukang_db', 
     port: process.env.MYSQLPORT || 3306,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
 
-// Cek koneksi saat awal
+// Cek koneksi saat awal (Hanya Log)
 db.getConnection((err, connection) => {
     if (err) {
         console.error('❌ Gagal koneksi Database:', err.message);
     } else {
         console.log('✅ Berhasil koneksi Database MySQL');
-        connection.release(); // Kembalikan koneksi ke pool
+        connection.release();
     }
 });
 
 // ================= RUTE API LENGKAP =================
 
+// Route Test (Untuk Cek Server Hidup)
+app.get('/', (req, res) => {
+    res.send("Backend Tukang Siap!");
+});
+
 // --- 1. REGISTER USER BARU ---
 app.post('/api/register', (req, res) => {
     const { nama_depan, nama_belakang, email, password, alamat, tipe_pengguna } = req.body;
-    
     const sql = `INSERT INTO users (nama_depan, nama_belakang, email, password, alamat, tipe_pengguna) VALUES (?, ?, ?, ?, ?, ?)`;
-    
     db.query(sql, [nama_depan, nama_belakang, email, password, alamat, tipe_pengguna], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: 'Registrasi Berhasil' });
@@ -76,7 +85,6 @@ app.post('/api/register', (req, res) => {
 // --- 2. LOGIN USER ---
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
-    
     const sql = "SELECT * FROM users WHERE email = ? AND password = ?";
     db.query(sql, [email, password], (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -92,15 +100,12 @@ app.post('/api/login', (req, res) => {
 // --- 3. AMBIL DATA TUKANG ---
 app.get('/api/tukang', (req, res) => {
     const sql = "SELECT id, nama_depan, nama_belakang, alamat, email, tipe_pengguna FROM users WHERE tipe_pengguna = 'tukang'";
-    
     db.query(sql, (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        
         const dataFormatted = results.map(user => ({
             ...user,
             keahlian: ['Umum'] 
         }));
-        
         res.json({ success: true, data: dataFormatted });
     });
 });
@@ -109,9 +114,7 @@ app.get('/api/tukang', (req, res) => {
 app.post('/api/pesanan', upload.single('foto'), (req, res) => {
     const { nama_user, kategori, deskripsi, alamat } = req.body;
     const fotoPath = req.file ? req.file.filename : null; 
-    
     const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES (?, ?, ?, ?, ?)";
-    
     db.query(sql, [nama_user, kategori, deskripsi, alamat, fotoPath], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: 'Pesanan berhasil dibuat!', orderId: result.insertId });
@@ -121,16 +124,12 @@ app.post('/api/pesanan', upload.single('foto'), (req, res) => {
 // --- 5. AMBIL SEMUA PESANAN ---
 app.get('/api/pesanan', (req, res) => {
     const sql = "SELECT * FROM pesanan ORDER BY id DESC"; 
-    
     db.query(sql, (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        
         const dataFormatted = results.map(item => ({
             ...item,
-            // Gunakan req.protocol dan req.get('host') agar domain dinamis (otomatis mengikuti Railway)
             foto_url: item.foto_masalah ? `${req.protocol}://${req.get('host')}/uploads/${item.foto_masalah}` : null
         }));
-
         res.json({ success: true, data: dataFormatted });
     });
 });
@@ -139,7 +138,6 @@ app.get('/api/pesanan', (req, res) => {
 app.get('/api/pesanan/:id', (req, res) => {
     const { id } = req.params;
     const sql = "SELECT * FROM pesanan WHERE id = ?";
-    
     db.query(sql, [id], (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         if (results.length > 0) res.json({ success: true, data: results[0] });
@@ -151,7 +149,6 @@ app.get('/api/pesanan/:id', (req, res) => {
 app.put('/api/pesanan/:id', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
-    
     const sql = "UPDATE pesanan SET status = ? WHERE id = ?";
     db.query(sql, [status, id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -175,12 +172,9 @@ app.get('/api/qris-settings', (req, res) => {
 app.put('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const { nama_depan, nama_belakang, email, alamat } = req.body;
-    
     const sql = "UPDATE users SET nama_depan = ?, nama_belakang = ?, email = ?, alamat = ? WHERE id = ?";
-    
     db.query(sql, [nama_depan, nama_belakang, email, alamat, id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        
         db.query("SELECT * FROM users WHERE id = ?", [id], (err, results) => {
              res.json({ success: true, message: 'Profil berhasil diperbarui!', user: results[0] });
         });
@@ -199,16 +193,12 @@ app.get('/api/chats', (req, res) => {
 // --- 11. KIRIM PESAN CHAT ---
 app.post('/api/chats', (req, res) => {
     const { sender_id, receiver_id, message } = req.body;
-    
     if (!message || message.trim() === "") {
         return res.status(400).json({ success: false, message: "Pesan kosong" });
     }
-
     const sql = "INSERT INTO chats (sender_id, receiver_id, message) VALUES (?, ?, ?)";
-    
     db.query(sql, [sender_id, receiver_id, message], (err, result) => { 
         if (err) return res.status(500).json({ success: false, message: err.message });
-        
         res.json({ 
             success: true, 
             data: { 
