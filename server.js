@@ -1,19 +1,35 @@
 const express = require('express');
 const mysql = require('mysql2');
-const cors = require('cors'); 
+// const cors = require('cors'); // KITA MATIKAN LIBRARY INI
 const bodyParser = require('body-parser');
 const multer = require('multer'); 
 const path = require('path');
 const fs = require('fs'); 
 
 const app = express();
-// Gunakan environment variable untuk PORT jika ada, default ke 3000
 const PORT = process.env.PORT || 3000;
 
-// --- PERBAIKAN CORS (SOLUSI FINAL) ---
-// Cukup gunakan ini. Baris app.options('*'...) dihapus karena bikin error di Node.js terbaru.
-// Ini sudah otomatis mengizinkan semua domain & menangani preflight request.
-app.use(cors()); 
+// =======================================================
+// SOLUSI CORS MANUAL (CARA PALING AMPUH)
+// =======================================================
+app.use((req, res, next) => {
+    // 1. Izinkan Siapapun Masuk (Frontend manapun)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // 2. Izinkan Method apa saja (GET, POST, PUT, DELETE, dll)
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    
+    // 3. Izinkan Header apa saja (Content-Type, Authorization, dll)
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+
+    // 4. Tangani Preflight Request (OPTIONS)
+    // Jika browser bertanya "Boleh gak?", langsung jawab "BOLEH! (200 OK)"
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    
+    next(); // Lanjut ke proses berikutnya
+});
 
 // --- MIDDLEWARE ---
 app.use(bodyParser.json());
@@ -62,9 +78,9 @@ db.getConnection((err, connection) => {
 
 // ================= RUTE API LENGKAP =================
 
-// Route Test (Untuk Cek Server Hidup)
+// Route Test (PENTING: Coba buka link backend anda di browser untuk cek ini)
 app.get('/', (req, res) => {
-    res.send("Backend Tukang Siap!");
+    res.send("Backend Tukang Siap & CORS Aman!");
 });
 
 // --- 1. REGISTER USER BARU ---
