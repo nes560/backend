@@ -7,7 +7,8 @@ const path = require('path');
 const fs = require('fs'); 
 
 const app = express();
-const PORT = 3000;
+// Gunakan environment variable untuk PORT jika ada, default ke 3000
+const PORT = process.env.PORT || 3000;
 
 // --- MIDDLEWARE ---
 app.use(cors());
@@ -15,83 +16,100 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // --- KONFIGURASI FOLDER UPLOAD ---
+// Pastikan folder uploads ada, jika tidak buat baru
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)){
     fs.mkdirSync(uploadDir);
 }
+// Serve file statis (agar foto bisa diakses lewat URL)
 app.use('/uploads', express.static(uploadDir));
 
-// --- KONFIGURASI MULTER ---
+// --- KONFIGURASI MULTER (UPLOAD FOTO) ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, 'uploads/');
     },
     filename: (req, file, cb) => {
+        // Buat nama file unik: foto-TIMESTAMP-RANDOM.jpg
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, 'foto-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 const upload = multer({ storage: storage });
 
-// --- KONEKSI DATABASE ---
+// --- KONEKSI DATABASE (PERBAIKAN UTAMA DI SINI) ---
 const db = mysql.createPool({
-    host: 'localhost',
-    user: 'root',      
-    password: '',      
-    database: 'tukang_db',
+    host: process.env.MYSQLHOST || 'localhost',
+    user: process.env.MYSQLUSER || 'root',
+    password: process.env.MYSQLPASSWORD || '',
+    database: process.env.MYSQLDATABASE || 'railway',
+    port: process.env.MYSQLPORT || 3306,
     waitForConnections: true,
-    connectionLimit: 10
+    connectionLimit: 10,
+    queueLimit: 0
 });
 
-db.getConnection((err) => {
-    if (err) console.error('❌ Gagal koneksi Database:', err.message);
-    else console.log('✅ Berhasil koneksi Database: tukang_db');
+// Cek koneksi saat awal
+db.getConnection((err, connection) => {
+    if (err) {
+        console.error('❌ Gagal koneksi Database:', err.message);
+    } else {
+        console.log('✅ Berhasil koneksi Database MySQL');
+        connection.release(); // Kembalikan koneksi ke pool
+    }
 });
 
 // ================= RUTE API LENGKAP =================
 
-// 1. REGISTER (VERSI YANG SUDAH DIBERSIHKAN)
+// --- 1. REGISTER USER BARU ---
 app.post('/api/register', (req, res) => {
-    // Kita hapus 'keahlian' dari sini
     const { nama_depan, nama_belakang, email, password, alamat, tipe_pengguna } = req.body;
     
     const sql = `INSERT INTO users (nama_depan, nama_belakang, email, password, alamat, tipe_pengguna) VALUES (?, ?, ?, ?, ?, ?)`;
     
-    // Kita hapus 'keahlianStr' dari list values
     db.query(sql, [nama_depan, nama_belakang, email, password, alamat, tipe_pengguna], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: 'Registrasi Berhasil' });
     });
 });
 
-// 2. LOGIN
+// --- 2. LOGIN USER ---
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
+    
     const sql = "SELECT * FROM users WHERE email = ? AND password = ?";
     db.query(sql, [email, password], (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        if (results.length > 0) res.json({ success: true, user: results[0] });
-        else res.status(401).json({ success: false, message: 'Email atau Password salah' });
+        
+        if (results.length > 0) {
+            res.json({ success: true, user: results[0] });
+        } else {
+            res.status(401).json({ success: false, message: 'Email atau Password salah' });
+        }
     });
 });
 
-// 3. AMBIL DATA TUKANG
+// --- 3. AMBIL DATA TUKANG ---
 app.get('/api/tukang', (req, res) => {
-    const sql = "SELECT id, nama_depan, nama_belakang, alamat, email, keahlian FROM users WHERE tipe_pengguna = 'tukang'";
+    const sql = "SELECT id, nama_depan, nama_belakang, alamat, email, tipe_pengguna FROM users WHERE tipe_pengguna = 'tukang'";
+    
     db.query(sql, (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
+        
         const dataFormatted = results.map(user => ({
             ...user,
-            keahlian: user.keahlian ? user.keahlian.split(',') : ['Umum']
+            keahlian: ['Umum'] 
         }));
+        
         res.json({ success: true, data: dataFormatted });
     });
 });
 
-// 4. PESANAN BARU (+UPLOAD FOTO)
+// --- 4. BUAT PESANAN BARU ---
 app.post('/api/pesanan', upload.single('foto'), (req, res) => {
     const { nama_user, kategori, deskripsi, alamat } = req.body;
-    const fotoPath = req.file ? req.file.filename : null;
+    const fotoPath = req.file ? req.file.filename : null; 
+    
     const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES (?, ?, ?, ?, ?)";
     
     db.query(sql, [nama_user, kategori, deskripsi, alamat, fotoPath], (err, result) => {
@@ -100,28 +118,28 @@ app.post('/api/pesanan', upload.single('foto'), (req, res) => {
     });
 });
 
-// 4.5. AMBIL SEMUA DATA PESANAN (UNTUK LIST ORDER)
+// --- 5. AMBIL SEMUA PESANAN ---
 app.get('/api/pesanan', (req, res) => {
-    // Mengambil semua data dari tabel pesanan, diurutkan dari yang terbaru (DESC)
     const sql = "SELECT * FROM pesanan ORDER BY id DESC"; 
     
     db.query(sql, (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         
-        // Kita format datanya sedikit agar URL fotonya lengkap
         const dataFormatted = results.map(item => ({
             ...item,
-            foto_url: item.foto_masalah ? `http://localhost:3000/uploads/${item.foto_masalah}` : null
+            // Gunakan req.protocol dan req.get('host') agar domain dinamis (otomatis mengikuti Railway)
+            foto_url: item.foto_masalah ? `${req.protocol}://${req.get('host')}/uploads/${item.foto_masalah}` : null
         }));
 
         res.json({ success: true, data: dataFormatted });
     });
 });
 
-// 5. DETAIL PESANAN
+// --- 6. DETAIL PESANAN ---
 app.get('/api/pesanan/:id', (req, res) => {
     const { id } = req.params;
     const sql = "SELECT * FROM pesanan WHERE id = ?";
+    
     db.query(sql, [id], (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         if (results.length > 0) res.json({ success: true, data: results[0] });
@@ -129,10 +147,11 @@ app.get('/api/pesanan/:id', (req, res) => {
     });
 });
 
-// 6. UPDATE STATUS BAYAR
+// --- 7. UPDATE STATUS PESANAN ---
 app.put('/api/pesanan/:id', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
+    
     const sql = "UPDATE pesanan SET status = ? WHERE id = ?";
     db.query(sql, [status, id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -140,7 +159,7 @@ app.put('/api/pesanan/:id', (req, res) => {
     });
 });
 
-// 7. QRIS SETTINGS
+// --- 8. QRIS SETTINGS ---
 app.get('/api/qris-settings', (req, res) => {
     res.json({
         success: true,
@@ -152,10 +171,11 @@ app.get('/api/qris-settings', (req, res) => {
     });
 });
 
-// 8. UPDATE PROFIL
+// --- 9. UPDATE PROFIL USER ---
 app.put('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const { nama_depan, nama_belakang, email, alamat } = req.body;
+    
     const sql = "UPDATE users SET nama_depan = ?, nama_belakang = ?, email = ?, alamat = ? WHERE id = ?";
     
     db.query(sql, [nama_depan, nama_belakang, email, alamat, id], (err, result) => {
@@ -167,9 +187,7 @@ app.put('/api/users/:id', (req, res) => {
     });
 });
 
-// --- FITUR CHAT (YANG BARU DITAMBAHKAN) ---
-
-// 9. AMBIL SEMUA CHAT
+// --- 10. AMBIL CHAT ---
 app.get('/api/chats', (req, res) => {
     const sql = "SELECT * FROM chats ORDER BY created_at ASC";
     db.query(sql, (err, results) => {
@@ -178,18 +196,16 @@ app.get('/api/chats', (req, res) => {
     });
 });
 
-// 10. KIRIM PESAN CHAT (PERBAIKAN)
+// --- 11. KIRIM PESAN CHAT ---
 app.post('/api/chats', (req, res) => {
     const { sender_id, receiver_id, message } = req.body;
     
-    // Validasi input
     if (!message || message.trim() === "") {
         return res.status(400).json({ success: false, message: "Pesan kosong" });
     }
 
     const sql = "INSERT INTO chats (sender_id, receiver_id, message) VALUES (?, ?, ?)";
     
-    // PERHATIKAN DISINI: Jangan pakai angka 0 lagi, pakai variabel 'receiver_id'
     db.query(sql, [sender_id, receiver_id, message], (err, result) => { 
         if (err) return res.status(500).json({ success: false, message: err.message });
         
@@ -206,9 +222,7 @@ app.post('/api/chats', (req, res) => {
     });
 });
 
-// --- FITUR KHUSUS ADMIN ---
-
-// 11. AMBIL SEMUA USER (Untuk halaman Admin User)
+// --- 12. ADMIN: AMBIL SEMUA USER ---
 app.get('/api/users/all', (req, res) => {
     const sql = "SELECT * FROM users ORDER BY id DESC";
     db.query(sql, (err, results) => {
@@ -217,7 +231,7 @@ app.get('/api/users/all', (req, res) => {
     });
 });
 
-// 12. HAPUS USER
+// --- 13. ADMIN: HAPUS USER ---
 app.delete('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const sql = "DELETE FROM users WHERE id = ?";
@@ -227,7 +241,7 @@ app.delete('/api/users/:id', (req, res) => {
     });
 });
 
-// 13. UPDATE STATUS ORDER (Admin bisa paksa selesai/batal)
+// --- 14. ADMIN: UPDATE STATUS ORDER ---
 app.put('/api/pesanan/:id/status', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
@@ -240,5 +254,6 @@ app.put('/api/pesanan/:id/status', (req, res) => {
 
 // --- JALANKAN SERVER ---
 app.listen(PORT, () => {
-    console.log(`🚀 Server berjalan di: http://localhost:${PORT}`);
+    console.log(`🚀 Server berjalan di port: ${PORT}`);
+    console.log(`📂 Folder upload: ${uploadDir}`);
 });
