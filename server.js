@@ -1,6 +1,6 @@
 const express = require('express');
 const mysql = require('mysql2');
-const cors = require('cors'); // Pastikan ini ada
+const cors = require('cors'); 
 const bodyParser = require('body-parser');
 const multer = require('multer'); 
 const path = require('path');
@@ -8,16 +8,12 @@ const fs = require('fs');
 
 const app = express();
 // Gunakan environment variable untuk PORT jika ada, default ke 3000
-// Railway otomatis mengisi process.env.PORT
 const PORT = process.env.PORT || 3000;
 
-// --- PERBAIKAN CORS (SOLUSI ERROR 502/BLOCKED) ---
-// 1. Izinkan semua domain (Frontend Railway & Localhost)
+// --- PERBAIKAN CORS (SOLUSI FINAL) ---
+// Cukup gunakan ini. Baris app.options('*'...) dihapus karena bikin error di Node.js terbaru.
+// Ini sudah otomatis mengizinkan semua domain & menangani preflight request.
 app.use(cors()); 
-
-// 2. Tangani Preflight Request (OPTIONS) secara eksplisit
-// Ini wajib agar browser tidak error saat cek keamanan sebelum kirim data
-app.options('*', cors());
 
 // --- MIDDLEWARE ---
 app.use(bodyParser.json());
@@ -47,7 +43,6 @@ const db = mysql.createPool({
     host: process.env.MYSQLHOST || 'localhost',
     user: process.env.MYSQLUSER || 'root',
     password: process.env.MYSQLPASSWORD || '',
-    // Di Railway otomatis pakai 'railway', di laptop pakai 'tukang_db'
     database: process.env.MYSQLDATABASE || 'tukang_db', 
     port: process.env.MYSQLPORT || 3306,
     waitForConnections: true,
