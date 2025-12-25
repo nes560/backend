@@ -1,4 +1,6 @@
+// PERBAIKAN CORS MANUAL - FINAL
 const express = require('express');
+// ... dst
 const mysql = require('mysql2');
 // const cors = require('cors'); // KITA MATIKAN LIBRARY INI
 const bodyParser = require('body-parser');
@@ -254,7 +256,8 @@ app.put('/api/pesanan/:id/status', (req, res) => {
 });
 
 // --- JALANKAN SERVER ---
-app.listen(PORT, () => {
+// Tambahkan '0.0.0.0' agar bisa diakses dari luar container Railway
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server berjalan di port: ${PORT}`);
     console.log(`📂 Folder upload: ${uploadDir}`);
 });
