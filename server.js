@@ -1,6 +1,5 @@
 // PERBAIKAN CORS MANUAL - FINAL
 const express = require('express');
-// ... dst
 const mysql = require('mysql2');
 // const cors = require('cors'); // KITA MATIKAN LIBRARY INI
 const bodyParser = require('body-parser');
@@ -253,6 +252,32 @@ app.put('/api/pesanan/:id/status', (req, res) => {
         if (err) return res.status(500).json({ success: false, message: 'Gagal update status' });
         res.json({ success: true, message: 'Status pesanan diperbarui' });
     });
+});
+
+// --- 15. ✅ FITUR BARU: SIMPAN REVIEW & RATING ---
+app.post('/api/pesanan/:id/review', async (req, res) => {
+    const { id } = req.params;
+    const { rating, ulasan } = req.body;
+
+    try {
+        const query = 'UPDATE pesanan SET rating = ?, ulasan = ? WHERE id = ?';
+        
+        if (db.promise) {
+             await db.promise().query(query, [rating, ulasan, id]);
+        } else {
+             await new Promise((resolve, reject) => {
+                db.query(query, [rating, ulasan, id], (err, result) => {
+                    if (err) reject(err);
+                    else resolve(result);
+                });
+             });
+        }
+
+        res.json({ success: true, message: "Ulasan berhasil disimpan" });
+    } catch (error) {
+        console.error("Error review:", error);
+        res.status(500).json({ success: false, message: "Gagal menyimpan ke database" });
+    }
 });
 
 // --- JALANKAN SERVER ---
