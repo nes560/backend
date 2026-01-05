@@ -47,9 +47,11 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // --- KONEKSI DATABASE (POSTGRESQL / NEON) ---
+// --- KONEKSI DATABASE (POSTGRESQL / NEON) ---
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false } // ✅ Wajib untuk Neon
+    // 👇 GANTI process.env.DATABASE_URL DENGAN LINK ASLI ANDA (PAKAI TANDA KUTIP)
+    connectionString: 'postgresql://neondb_owner:****************@ep-tiny-butterfly-adtgh2yw-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require',
+    ssl: { rejectUnauthorized: false }
 });
 
 // Cek koneksi
