@@ -1,7 +1,6 @@
-// PERBAIKAN CORS MANUAL - FINAL
+// PERBAIKAN CORS MANUAL - VERSI POSTGRESQL (NEON)
 const express = require('express');
-const mysql = require('mysql2');
-// const cors = require('cors'); // KITA MATIKAN LIBRARY INI
+const { Pool } = require('pg'); // ✅ GANTI mysql2 jadi pg
 const bodyParser = require('body-parser');
 const multer = require('multer'); 
 const path = require('path');
@@ -11,25 +10,16 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // =======================================================
-// SOLUSI CORS MANUAL (CARA PALING AMPUH)
+// SOLUSI CORS MANUAL (TETAP KITA PAKAI)
 // =======================================================
 app.use((req, res, next) => {
-    // 1. Izinkan Siapapun Masuk (Frontend manapun)
     res.setHeader('Access-Control-Allow-Origin', '*');
-    
-    // 2. Izinkan Method apa saja (GET, POST, PUT, DELETE, dll)
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    
-    // 3. Izinkan Header apa saja (Content-Type, Authorization, dll)
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-
-    // 4. Tangani Preflight Request (OPTIONS)
-    // Jika browser bertanya "Boleh gak?", langsung jawab "BOLEH! (200 OK)"
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
-    
-    next(); // Lanjut ke proses berikutnya
+    next();
 });
 
 // --- MIDDLEWARE ---
@@ -42,8 +32,9 @@ if (!fs.existsSync(uploadDir)){
     fs.mkdirSync(uploadDir);
 }
 app.use('/uploads', express.static(uploadDir));
+// ⚠️ CATATAN: Di Render Free Tier, gambar di folder ini akan hilang setiap deploy ulang.
 
-// --- KONFIGURASI MULTER (UPLOAD FOTO) ---
+// --- KONFIGURASI MULTER ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, 'uploads/');
@@ -55,40 +46,35 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// --- KONEKSI DATABASE ---
-const db = mysql.createPool({
-    host: process.env.MYSQLHOST || 'localhost',
-    user: process.env.MYSQLUSER || 'root',
-    password: process.env.MYSQLPASSWORD || '',
-    database: process.env.MYSQLDATABASE || 'tukang_db', 
-    port: process.env.MYSQLPORT || 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+// --- KONEKSI DATABASE (POSTGRESQL / NEON) ---
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false } // ✅ Wajib untuk Neon
 });
 
-// Cek koneksi saat awal (Hanya Log)
-db.getConnection((err, connection) => {
+// Cek koneksi
+pool.connect((err, client, release) => {
     if (err) {
-        console.error('❌ Gagal koneksi Database:', err.message);
+        console.error('❌ Gagal koneksi Database Neon:', err.message);
     } else {
-        console.log('✅ Berhasil koneksi Database MySQL');
-        connection.release();
+        console.log('✅ Berhasil koneksi ke Neon PostgreSQL');
+        release();
     }
 });
 
-// ================= RUTE API LENGKAP =================
+// ================= RUTE API (SUDAH DISESUAIKAN UNTUK POSTGRES) =================
 
-// Route Test (PENTING: Coba buka link backend anda di browser untuk cek ini)
+// Route Test
 app.get('/', (req, res) => {
-    res.send("Backend Tukang Siap & CORS Aman!");
+    res.send("Backend Tukang (Neon PostgreSQL) Siap!");
 });
 
 // --- 1. REGISTER USER BARU ---
 app.post('/api/register', (req, res) => {
     const { nama_depan, nama_belakang, email, password, alamat, tipe_pengguna } = req.body;
-    const sql = `INSERT INTO users (nama_depan, nama_belakang, email, password, alamat, tipe_pengguna) VALUES (?, ?, ?, ?, ?, ?)`;
-    db.query(sql, [nama_depan, nama_belakang, email, password, alamat, tipe_pengguna], (err, result) => {
+    // Postgres pakai $1, $2 dst, bukan ?
+    const sql = `INSERT INTO users (nama_depan, nama_belakang, email, password, alamat, tipe_pengguna) VALUES ($1, $2, $3, $4, $5, $6)`;
+    pool.query(sql, [nama_depan, nama_belakang, email, password, alamat, tipe_pengguna], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: 'Registrasi Berhasil' });
     });
@@ -97,12 +83,13 @@ app.post('/api/register', (req, res) => {
 // --- 2. LOGIN USER ---
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
-    const sql = "SELECT * FROM users WHERE email = ? AND password = ?";
-    db.query(sql, [email, password], (err, results) => {
+    const sql = "SELECT * FROM users WHERE email = $1 AND password = $2";
+    pool.query(sql, [email, password], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         
-        if (results.length > 0) {
-            res.json({ success: true, user: results[0] });
+        // Di Postgres datanya ada di result.rows
+        if (result.rows.length > 0) {
+            res.json({ success: true, user: result.rows[0] });
         } else {
             res.status(401).json({ success: false, message: 'Email atau Password salah' });
         }
@@ -112,9 +99,9 @@ app.post('/api/login', (req, res) => {
 // --- 3. AMBIL DATA TUKANG ---
 app.get('/api/tukang', (req, res) => {
     const sql = "SELECT id, nama_depan, nama_belakang, alamat, email, tipe_pengguna FROM users WHERE tipe_pengguna = 'tukang'";
-    db.query(sql, (err, results) => {
+    pool.query(sql, (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        const dataFormatted = results.map(user => ({
+        const dataFormatted = result.rows.map(user => ({
             ...user,
             keahlian: ['Umum'] 
         }));
@@ -126,19 +113,20 @@ app.get('/api/tukang', (req, res) => {
 app.post('/api/pesanan', upload.single('foto'), (req, res) => {
     const { nama_user, kategori, deskripsi, alamat } = req.body;
     const fotoPath = req.file ? req.file.filename : null; 
-    const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES (?, ?, ?, ?, ?)";
-    db.query(sql, [nama_user, kategori, deskripsi, alamat, fotoPath], (err, result) => {
+    // Postgres butuh RETURNING id untuk dapat ID baru
+    const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES ($1, $2, $3, $4, $5) RETURNING id";
+    pool.query(sql, [nama_user, kategori, deskripsi, alamat, fotoPath], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, message: 'Pesanan berhasil dibuat!', orderId: result.insertId });
+        res.json({ success: true, message: 'Pesanan berhasil dibuat!', orderId: result.rows[0].id });
     });
 });
 
 // --- 5. AMBIL SEMUA PESANAN ---
 app.get('/api/pesanan', (req, res) => {
     const sql = "SELECT * FROM pesanan ORDER BY id DESC"; 
-    db.query(sql, (err, results) => {
+    pool.query(sql, (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        const dataFormatted = results.map(item => ({
+        const dataFormatted = result.rows.map(item => ({
             ...item,
             foto_url: item.foto_masalah ? `${req.protocol}://${req.get('host')}/uploads/${item.foto_masalah}` : null
         }));
@@ -149,10 +137,10 @@ app.get('/api/pesanan', (req, res) => {
 // --- 6. DETAIL PESANAN ---
 app.get('/api/pesanan/:id', (req, res) => {
     const { id } = req.params;
-    const sql = "SELECT * FROM pesanan WHERE id = ?";
-    db.query(sql, [id], (err, results) => {
+    const sql = "SELECT * FROM pesanan WHERE id = $1";
+    pool.query(sql, [id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        if (results.length > 0) res.json({ success: true, data: results[0] });
+        if (result.rows.length > 0) res.json({ success: true, data: result.rows[0] });
         else res.status(404).json({ success: false, message: 'Pesanan tidak ditemukan' });
     });
 });
@@ -161,8 +149,8 @@ app.get('/api/pesanan/:id', (req, res) => {
 app.put('/api/pesanan/:id', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
-    const sql = "UPDATE pesanan SET status = ? WHERE id = ?";
-    db.query(sql, [status, id], (err, result) => {
+    const sql = "UPDATE pesanan SET status = $1 WHERE id = $2";
+    pool.query(sql, [status, id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: 'Status berhasil diupdate' });
     });
@@ -184,21 +172,19 @@ app.get('/api/qris-settings', (req, res) => {
 app.put('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const { nama_depan, nama_belakang, email, alamat } = req.body;
-    const sql = "UPDATE users SET nama_depan = ?, nama_belakang = ?, email = ?, alamat = ? WHERE id = ?";
-    db.query(sql, [nama_depan, nama_belakang, email, alamat, id], (err, result) => {
+    const sql = "UPDATE users SET nama_depan = $1, nama_belakang = $2, email = $3, alamat = $4 WHERE id = $5 RETURNING *";
+    pool.query(sql, [nama_depan, nama_belakang, email, alamat, id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        db.query("SELECT * FROM users WHERE id = ?", [id], (err, results) => {
-             res.json({ success: true, message: 'Profil berhasil diperbarui!', user: results[0] });
-        });
+        res.json({ success: true, message: 'Profil berhasil diperbarui!', user: result.rows[0] });
     });
 });
 
 // --- 10. AMBIL CHAT ---
 app.get('/api/chats', (req, res) => {
     const sql = "SELECT * FROM chats ORDER BY created_at ASC";
-    db.query(sql, (err, results) => {
+    pool.query(sql, (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, data: results });
+        res.json({ success: true, data: result.rows });
     });
 });
 
@@ -208,13 +194,13 @@ app.post('/api/chats', (req, res) => {
     if (!message || message.trim() === "") {
         return res.status(400).json({ success: false, message: "Pesan kosong" });
     }
-    const sql = "INSERT INTO chats (sender_id, receiver_id, message) VALUES (?, ?, ?)";
-    db.query(sql, [sender_id, receiver_id, message], (err, result) => { 
+    const sql = "INSERT INTO chats (sender_id, receiver_id, message) VALUES ($1, $2, $3) RETURNING id";
+    pool.query(sql, [sender_id, receiver_id, message], (err, result) => { 
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ 
             success: true, 
             data: { 
-                id: result.insertId, 
+                id: result.rows[0].id, 
                 sender_id, 
                 receiver_id, 
                 message,
@@ -227,17 +213,17 @@ app.post('/api/chats', (req, res) => {
 // --- 12. ADMIN: AMBIL SEMUA USER ---
 app.get('/api/users/all', (req, res) => {
     const sql = "SELECT * FROM users ORDER BY id DESC";
-    db.query(sql, (err, results) => {
+    pool.query(sql, (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, data: results });
+        res.json({ success: true, data: result.rows });
     });
 });
 
 // --- 13. ADMIN: HAPUS USER ---
 app.delete('/api/users/:id', (req, res) => {
     const { id } = req.params;
-    const sql = "DELETE FROM users WHERE id = ?";
-    db.query(sql, [id], (err, result) => {
+    const sql = "DELETE FROM users WHERE id = $1";
+    pool.query(sql, [id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: 'User berhasil dihapus' });
     });
@@ -247,32 +233,20 @@ app.delete('/api/users/:id', (req, res) => {
 app.put('/api/pesanan/:id/status', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
-    const sql = "UPDATE pesanan SET status = ? WHERE id = ?";
-    db.query(sql, [status, id], (err, result) => {
+    const sql = "UPDATE pesanan SET status = $1 WHERE id = $2";
+    pool.query(sql, [status, id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: 'Gagal update status' });
         res.json({ success: true, message: 'Status pesanan diperbarui' });
     });
 });
 
-// --- 15. ✅ FITUR BARU: SIMPAN REVIEW & RATING ---
+// --- 15. SIMPAN REVIEW & RATING ---
 app.post('/api/pesanan/:id/review', async (req, res) => {
     const { id } = req.params;
     const { rating, ulasan } = req.body;
-
     try {
-        const query = 'UPDATE pesanan SET rating = ?, ulasan = ? WHERE id = ?';
-        
-        if (db.promise) {
-             await db.promise().query(query, [rating, ulasan, id]);
-        } else {
-             await new Promise((resolve, reject) => {
-                db.query(query, [rating, ulasan, id], (err, result) => {
-                    if (err) reject(err);
-                    else resolve(result);
-                });
-             });
-        }
-
+        const query = 'UPDATE pesanan SET rating = $1, ulasan = $2 WHERE id = $3';
+        await pool.query(query, [rating, ulasan, id]);
         res.json({ success: true, message: "Ulasan berhasil disimpan" });
     } catch (error) {
         console.error("Error review:", error);
@@ -281,7 +255,6 @@ app.post('/api/pesanan/:id/review', async (req, res) => {
 });
 
 // --- JALANKAN SERVER ---
-// Tambahkan '0.0.0.0' agar bisa diakses dari luar container Railway
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server berjalan di port: ${PORT}`);
     console.log(`📂 Folder upload: ${uploadDir}`);
