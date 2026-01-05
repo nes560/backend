@@ -254,8 +254,14 @@ app.post('/api/pesanan/:id/review', async (req, res) => {
     }
 });
 
-// --- JALANKAN SERVER ---
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server berjalan di port: ${PORT}`);
-    console.log(`📂 Folder upload: ${uploadDir}`);
-});
+// --- JALANKAN SERVER (MODIFIKASI UNTUK VERCEL) ---
+// Kita bungkus app.listen agar hanya jalan saat di local, bukan di Vercel
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`🚀 Server berjalan di port: ${PORT}`);
+        console.log(`📂 Folder upload: ${uploadDir}`);
+    });
+}
+
+// PENTING: Export app agar dibaca oleh Vercel
+module.exports = app;
