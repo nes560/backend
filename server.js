@@ -1,17 +1,22 @@
-// PERBAIKAN CORS MANUAL - VERSI POSTGRESQL (NEON)
+// BACKEND FINAL: INTEGRASI CLOUDINARY + POSTGRESQL (NEON)
 const express = require('express');
-const { Pool } = require('pg'); // ✅ GANTI mysql2 jadi pg
+const { Pool } = require('pg');
 const bodyParser = require('body-parser');
 const multer = require('multer'); 
-const path = require('path');
-const fs = require('fs'); 
+const cloudinary = require('cloudinary').v2;
+const streamifier = require('streamifier'); // Wajib install: npm install streamifier
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// =======================================================
-// SOLUSI CORS MANUAL (TETAP KITA PAKAI)
-// =======================================================
+// --- 1. KONFIGURASI CLOUDINARY (SESUAI DATA ANDA) ---
+cloudinary.config({ 
+  cloud_name: 'duf9khlya', 
+  api_key: '427538359831592', 
+  api_secret: 'iBzLd_UekopbMVml8aiUmiA8MLc' 
+});
+
+// --- 2. CORS ---
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -22,59 +27,44 @@ app.use((req, res, next) => {
     next();
 });
 
-// --- MIDDLEWARE ---
+// --- 3. MIDDLEWARE ---
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// --- KONFIGURASI FOLDER UPLOAD ---
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)){
-    fs.mkdirSync(uploadDir);
-}
-app.use('/uploads', express.static(uploadDir));
-// ⚠️ CATATAN: Di Render Free Tier, gambar di folder ini akan hilang setiap deploy ulang.
-
-// --- KONFIGURASI MULTER ---
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'uploads/');
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'foto-' + uniqueSuffix + path.extname(file.originalname));
-    }
-});
+// --- 4. KONFIGURASI MULTER (MEMORY STORAGE) ---
+// Kita simpan file di RAM sementara sebelum ke Cloudinary
+const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// --- KONEKSI DATABASE (POSTGRESQL / NEON) ---
-// --- KONEKSI DATABASE (POSTGRESQL / NEON) ---
+// --- 5. FUNGSI HELPER UPLOAD KE CLOUDINARY ---
+const uploadToCloudinary = (buffer) => {
+    return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+            { folder: "tukang_app_orders" }, // Nama folder di Cloudinary
+            (error, result) => {
+                if (error) return reject(error);
+                resolve(result);
+            }
+        );
+        streamifier.createReadStream(buffer).pipe(uploadStream);
+    });
+};
+
+// --- 6. KONEKSI DATABASE (NEON) ---
 const pool = new Pool({
-    // 👇 GANTI process.env.DATABASE_URL DENGAN LINK ASLI ANDA (PAKAI TANDA KUTIP)
-    connectionString: 'postgresql://neondb_owner:npg_QJj2mwI8cPfT@ep-tiny-butterfly-adtgh2yw-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require',
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
 
-// Cek koneksi
-pool.connect((err, client, release) => {
-    if (err) {
-        console.error('❌ Gagal koneksi Database Neon:', err.message);
-    } else {
-        console.log('✅ Berhasil koneksi ke Neon PostgreSQL');
-        release();
-    }
-});
+// ================= RUTE API =================
 
-// ================= RUTE API (SUDAH DISESUAIKAN UNTUK POSTGRES) =================
-
-// Route Test
 app.get('/', (req, res) => {
-    res.send("Backend Tukang (Neon PostgreSQL) Siap!");
+    res.send("Backend Tukang (Cloudinary Version) Siap!");
 });
 
-// --- 1. REGISTER USER BARU ---
+// --- REGISTER ---
 app.post('/api/register', (req, res) => {
     const { nama_depan, nama_belakang, email, password, alamat, tipe_pengguna } = req.body;
-    // Postgres pakai $1, $2 dst, bukan ?
     const sql = `INSERT INTO users (nama_depan, nama_belakang, email, password, alamat, tipe_pengguna) VALUES ($1, $2, $3, $4, $5, $6)`;
     pool.query(sql, [nama_depan, nama_belakang, email, password, alamat, tipe_pengguna], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -82,14 +72,12 @@ app.post('/api/register', (req, res) => {
     });
 });
 
-// --- 2. LOGIN USER ---
+// --- LOGIN ---
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     const sql = "SELECT * FROM users WHERE email = $1 AND password = $2";
     pool.query(sql, [email, password], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        
-        // Di Postgres datanya ada di result.rows
         if (result.rows.length > 0) {
             res.json({ success: true, user: result.rows[0] });
         } else {
@@ -98,7 +86,7 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-// --- 3. AMBIL DATA TUKANG ---
+// --- AMBIL DATA TUKANG ---
 app.get('/api/tukang', (req, res) => {
     const sql = "SELECT id, nama_depan, nama_belakang, alamat, email, tipe_pengguna FROM users WHERE tipe_pengguna = 'tukang'";
     pool.query(sql, (err, result) => {
@@ -111,32 +99,51 @@ app.get('/api/tukang', (req, res) => {
     });
 });
 
-// --- 4. BUAT PESANAN BARU ---
-app.post('/api/pesanan', upload.single('foto'), (req, res) => {
+// --- BUAT PESANAN BARU (DENGAN CLOUDINARY) ---
+app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
     const { nama_user, kategori, deskripsi, alamat } = req.body;
-    const fotoPath = req.file ? req.file.filename : null; 
-    // Postgres butuh RETURNING id untuk dapat ID baru
-    const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES ($1, $2, $3, $4, $5) RETURNING id";
-    pool.query(sql, [nama_user, kategori, deskripsi, alamat, fotoPath], (err, result) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, message: 'Pesanan berhasil dibuat!', orderId: result.rows[0].id });
-    });
+    
+    try {
+        let fotoUrl = null;
+
+        // Jika ada file, upload ke Cloudinary
+        if (req.file) {
+            console.log("Mulai upload ke Cloudinary...");
+            const cloudResult = await uploadToCloudinary(req.file.buffer);
+            fotoUrl = cloudResult.secure_url; // Ambil Link Gambar
+            console.log("Upload Berhasil:", fotoUrl);
+        }
+
+        // Simpan ke Database (Link gambarnya saja)
+        const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES ($1, $2, $3, $4, $5) RETURNING id";
+        
+        pool.query(sql, [nama_user, kategori, deskripsi, alamat, fotoUrl], (err, result) => {
+            if (err) {
+                console.error("Database Error:", err);
+                return res.status(500).json({ success: false, message: err.message });
+            }
+            res.json({ success: true, message: 'Pesanan berhasil dibuat!', orderId: result.rows[0].id });
+        });
+
+    } catch (error) {
+        console.error("Upload Error:", error);
+        res.status(500).json({ success: false, message: "Gagal upload gambar ke server cloud" });
+    }
 });
 
-// --- 5. AMBIL SEMUA PESANAN ---
+// --- AMBIL SEMUA PESANAN ---
 app.get('/api/pesanan', (req, res) => {
     const sql = "SELECT * FROM pesanan ORDER BY id DESC"; 
     pool.query(sql, (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        const dataFormatted = result.rows.map(item => ({
-            ...item,
-            foto_url: item.foto_masalah ? `${req.protocol}://${req.get('host')}/uploads/${item.foto_masalah}` : null
-        }));
-        res.json({ success: true, data: dataFormatted });
+        
+        // Data foto_masalah sekarang berisi URL Cloudinary (https://res.cloudinary...)
+        // Jadi bisa langsung dipakai oleh Frontend tanpa perlu diubah
+        res.json({ success: true, data: result.rows });
     });
 });
 
-// --- 6. DETAIL PESANAN ---
+// --- DETAIL PESANAN ---
 app.get('/api/pesanan/:id', (req, res) => {
     const { id } = req.params;
     const sql = "SELECT * FROM pesanan WHERE id = $1";
@@ -147,7 +154,7 @@ app.get('/api/pesanan/:id', (req, res) => {
     });
 });
 
-// --- 7. UPDATE STATUS PESANAN ---
+// --- UPDATE STATUS ---
 app.put('/api/pesanan/:id', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
@@ -158,7 +165,7 @@ app.put('/api/pesanan/:id', (req, res) => {
     });
 });
 
-// --- 8. QRIS SETTINGS ---
+// --- QRIS ---
 app.get('/api/qris-settings', (req, res) => {
     res.json({
         success: true,
@@ -170,7 +177,7 @@ app.get('/api/qris-settings', (req, res) => {
     });
 });
 
-// --- 9. UPDATE PROFIL USER ---
+// --- UPDATE PROFIL ---
 app.put('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const { nama_depan, nama_belakang, email, alamat } = req.body;
@@ -181,7 +188,7 @@ app.put('/api/users/:id', (req, res) => {
     });
 });
 
-// --- 10. AMBIL CHAT ---
+// --- CHAT ---
 app.get('/api/chats', (req, res) => {
     const sql = "SELECT * FROM chats ORDER BY created_at ASC";
     pool.query(sql, (err, result) => {
@@ -190,7 +197,6 @@ app.get('/api/chats', (req, res) => {
     });
 });
 
-// --- 11. KIRIM PESAN CHAT ---
 app.post('/api/chats', (req, res) => {
     const { sender_id, receiver_id, message } = req.body;
     if (!message || message.trim() === "") {
@@ -205,65 +211,18 @@ app.post('/api/chats', (req, res) => {
                 id: result.rows[0].id, 
                 sender_id, 
                 receiver_id, 
-                message,
+                message, 
                 created_at: new Date() 
             } 
         });
     });
 });
 
-// --- 12. ADMIN: AMBIL SEMUA USER ---
-app.get('/api/users/all', (req, res) => {
-    const sql = "SELECT * FROM users ORDER BY id DESC";
-    pool.query(sql, (err, result) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, data: result.rows });
-    });
-});
-
-// --- 13. ADMIN: HAPUS USER ---
-app.delete('/api/users/:id', (req, res) => {
-    const { id } = req.params;
-    const sql = "DELETE FROM users WHERE id = $1";
-    pool.query(sql, [id], (err, result) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, message: 'User berhasil dihapus' });
-    });
-});
-
-// --- 14. ADMIN: UPDATE STATUS ORDER ---
-app.put('/api/pesanan/:id/status', (req, res) => {
-    const { id } = req.params;
-    const { status } = req.body;
-    const sql = "UPDATE pesanan SET status = $1 WHERE id = $2";
-    pool.query(sql, [status, id], (err, result) => {
-        if (err) return res.status(500).json({ success: false, message: 'Gagal update status' });
-        res.json({ success: true, message: 'Status pesanan diperbarui' });
-    });
-});
-
-// --- 15. SIMPAN REVIEW & RATING ---
-app.post('/api/pesanan/:id/review', async (req, res) => {
-    const { id } = req.params;
-    const { rating, ulasan } = req.body;
-    try {
-        const query = 'UPDATE pesanan SET rating = $1, ulasan = $2 WHERE id = $3';
-        await pool.query(query, [rating, ulasan, id]);
-        res.json({ success: true, message: "Ulasan berhasil disimpan" });
-    } catch (error) {
-        console.error("Error review:", error);
-        res.status(500).json({ success: false, message: "Gagal menyimpan ke database" });
-    }
-});
-
-// --- JALANKAN SERVER (MODIFIKASI UNTUK VERCEL) ---
-// Kita bungkus app.listen agar hanya jalan saat di local, bukan di Vercel
+// --- JALANKAN SERVER ---
 if (require.main === module) {
     app.listen(PORT, () => {
         console.log(`🚀 Server berjalan di port: ${PORT}`);
-        console.log(`📂 Folder upload: ${uploadDir}`);
     });
 }
 
-// PENTING: Export app agar dibaca oleh Vercel
 module.exports = app;
