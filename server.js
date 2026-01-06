@@ -1,4 +1,4 @@
-// BACKEND FINAL FIX: ROUTE STATUS MATCHING FRONTEND
+// BACKEND FINAL: TAMBAHAN FITUR ADMIN
 const express = require('express');
 const { Pool } = require('pg');
 const bodyParser = require('body-parser');
@@ -58,7 +58,7 @@ const pool = new Pool({
 // ================= RUTE API =================
 
 app.get('/', (req, res) => {
-    res.send("Backend Tukang (Route Status Fixed) Siap!");
+    res.send("Backend Tukang (Full Admin Features) Siap!");
 });
 
 // --- REGISTER ---
@@ -85,7 +85,7 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-// --- AMBIL DATA TUKANG ---
+// --- AMBIL DATA TUKANG (Untuk Halaman User biasa) ---
 app.get('/api/tukang', (req, res) => {
     const sql = "SELECT id, nama_depan, nama_belakang, alamat, email, tipe_pengguna FROM users WHERE tipe_pengguna = 'tukang'";
     pool.query(sql, (err, result) => {
@@ -98,18 +98,40 @@ app.get('/api/tukang', (req, res) => {
     });
 });
 
+// ==========================================
+// 🔥 TAMBAHAN KHUSUS ADMIN 🔥
+// ==========================================
+
+// 1. ADMIN: AMBIL SEMUA USER (Pelanggan & Tukang)
+app.get('/api/users/all', (req, res) => {
+    const sql = "SELECT * FROM users ORDER BY id DESC";
+    pool.query(sql, (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, data: result.rows });
+    });
+});
+
+// 2. ADMIN: HAPUS USER
+app.delete('/api/users/:id', (req, res) => {
+    const { id } = req.params;
+    const sql = "DELETE FROM users WHERE id = $1";
+    pool.query(sql, [id], (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, message: 'User berhasil dihapus' });
+    });
+});
+
+// ==========================================
+
 // --- BUAT PESANAN BARU ---
 app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
     const { nama_user, kategori_jasa, deskripsi_masalah, alamat } = req.body;
     
     try {
         let fotoUrl = null;
-
         if (req.file) {
-            console.log("Mulai upload ke Cloudinary...");
             const cloudResult = await uploadToCloudinary(req.file.buffer);
             fotoUrl = cloudResult.secure_url; 
-            console.log("Upload Berhasil:", fotoUrl);
         }
 
         const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES ($1, $2, $3, $4, $5) RETURNING id";
@@ -123,7 +145,6 @@ app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Upload Error:", error);
         res.status(500).json({ success: false, message: "Gagal upload gambar: " + error.message });
     }
 });
@@ -148,8 +169,7 @@ app.get('/api/pesanan/:id', (req, res) => {
     });
 });
 
-// --- UPDATE STATUS (PERBAIKAN DISINI) ---
-// Menambahkan '/status' di akhir agar cocok dengan Frontend
+// --- UPDATE STATUS ---
 app.put('/api/pesanan/:id/status', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
