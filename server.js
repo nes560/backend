@@ -1,15 +1,15 @@
-// BACKEND FINAL FIX: CLOUDINARY + HARDCODE DATABASE
+// BACKEND FINAL FIX: VARIABLE NAMES MATCH DATABASE
 const express = require('express');
 const { Pool } = require('pg');
 const bodyParser = require('body-parser');
 const multer = require('multer'); 
 const cloudinary = require('cloudinary').v2;
-const streamifier = require('streamifier'); // Pastikan library ini ada di package.json
+const streamifier = require('streamifier'); 
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- 1. KONFIGURASI CLOUDINARY (DATA ANDA) ---
+// --- 1. KONFIGURASI CLOUDINARY ---
 cloudinary.config({ 
   cloud_name: 'duf9khlya', 
   api_key: '427538359831592', 
@@ -31,11 +31,11 @@ app.use((req, res, next) => {
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// --- 4. KONFIGURASI MULTER (MEMORY STORAGE) ---
+// --- 4. KONFIGURASI MULTER ---
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// --- 5. FUNGSI HELPER UPLOAD KE CLOUDINARY ---
+// --- 5. FUNGSI HELPER UPLOAD ---
 const uploadToCloudinary = (buffer) => {
     return new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
@@ -49,9 +49,8 @@ const uploadToCloudinary = (buffer) => {
     });
 };
 
-// --- 6. KONEKSI DATABASE (HARDCODED AGAR AMAN) ---
+// --- 6. KONEKSI DATABASE ---
 const pool = new Pool({
-    // 👇 KITA TULIS LANGSUNG LINKNYA AGAR TIDAK ERROR "ECONNREFUSED"
     connectionString: 'postgresql://neondb_owner:npg_QJj2mwI8cPfT@ep-tiny-butterfly-adtgh2yw-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require',
     ssl: { rejectUnauthorized: false }
 });
@@ -59,7 +58,7 @@ const pool = new Pool({
 // ================= RUTE API =================
 
 app.get('/', (req, res) => {
-    res.send("Backend Tukang (Cloudinary + Hardcode DB) Siap!");
+    res.send("Backend Tukang (Fix Variable Names) Siap!");
 });
 
 // --- REGISTER ---
@@ -99,14 +98,14 @@ app.get('/api/tukang', (req, res) => {
     });
 });
 
-// --- BUAT PESANAN BARU (DENGAN CLOUDINARY) ---
+// --- BUAT PESANAN BARU (PERBAIKAN NAMA VARIABEL) ---
 app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
-    const { nama_user, kategori, deskripsi, alamat } = req.body;
+    // ✅ PERBAIKAN: Menggunakan nama variabel sesuai database dan frontend (kategori_jasa, deskripsi_masalah)
+    const { nama_user, kategori_jasa, deskripsi_masalah, alamat } = req.body;
     
     try {
         let fotoUrl = null;
 
-        // Jika ada file, upload ke Cloudinary
         if (req.file) {
             console.log("Mulai upload ke Cloudinary...");
             const cloudResult = await uploadToCloudinary(req.file.buffer);
@@ -114,10 +113,10 @@ app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
             console.log("Upload Berhasil:", fotoUrl);
         }
 
-        // Simpan ke Database
         const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES ($1, $2, $3, $4, $5) RETURNING id";
         
-        pool.query(sql, [nama_user, kategori, deskripsi, alamat, fotoUrl], (err, result) => {
+        // ✅ PERBAIKAN: Memasukkan variabel yang benar ke query
+        pool.query(sql, [nama_user, kategori_jasa, deskripsi_masalah, alamat, fotoUrl], (err, result) => {
             if (err) {
                 console.error("Database Error:", err);
                 return res.status(500).json({ success: false, message: err.message });
