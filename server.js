@@ -1,4 +1,4 @@
-// BACKEND FINAL: TAMBAHAN FITUR ADMIN
+// BACKEND FINAL COMPLETE: + FITUR REVIEW
 const express = require('express');
 const { Pool } = require('pg');
 const bodyParser = require('body-parser');
@@ -58,7 +58,7 @@ const pool = new Pool({
 // ================= RUTE API =================
 
 app.get('/', (req, res) => {
-    res.send("Backend Tukang (Full Admin Features) Siap!");
+    res.send("Backend Tukang (Complete with Reviews) Siap!");
 });
 
 // --- REGISTER ---
@@ -85,7 +85,7 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-// --- AMBIL DATA TUKANG (Untuk Halaman User biasa) ---
+// --- AMBIL DATA TUKANG ---
 app.get('/api/tukang', (req, res) => {
     const sql = "SELECT id, nama_depan, nama_belakang, alamat, email, tipe_pengguna FROM users WHERE tipe_pengguna = 'tukang'";
     pool.query(sql, (err, result) => {
@@ -98,11 +98,7 @@ app.get('/api/tukang', (req, res) => {
     });
 });
 
-// ==========================================
-// 🔥 TAMBAHAN KHUSUS ADMIN 🔥
-// ==========================================
-
-// 1. ADMIN: AMBIL SEMUA USER (Pelanggan & Tukang)
+// --- FITUR ADMIN ---
 app.get('/api/users/all', (req, res) => {
     const sql = "SELECT * FROM users ORDER BY id DESC";
     pool.query(sql, (err, result) => {
@@ -111,7 +107,6 @@ app.get('/api/users/all', (req, res) => {
     });
 });
 
-// 2. ADMIN: HAPUS USER
 app.delete('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const sql = "DELETE FROM users WHERE id = $1";
@@ -121,9 +116,7 @@ app.delete('/api/users/:id', (req, res) => {
     });
 });
 
-// ==========================================
-
-// --- BUAT PESANAN BARU ---
+// --- BUAT PESANAN ---
 app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
     const { nama_user, kategori_jasa, deskripsi_masalah, alamat } = req.body;
     
@@ -145,11 +138,11 @@ app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
         });
 
     } catch (error) {
-        res.status(500).json({ success: false, message: "Gagal upload gambar: " + error.message });
+        res.status(500).json({ success: false, message: "Gagal upload: " + error.message });
     }
 });
 
-// --- AMBIL SEMUA PESANAN ---
+// --- AMBIL PESANAN ---
 app.get('/api/pesanan', (req, res) => {
     const sql = "SELECT * FROM pesanan ORDER BY id DESC"; 
     pool.query(sql, (err, result) => {
@@ -177,6 +170,23 @@ app.put('/api/pesanan/:id/status', (req, res) => {
     pool.query(sql, [status, id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: 'Status berhasil diupdate' });
+    });
+});
+
+// --- SIMPAN REVIEW (INI YANG DITAMBAHKAN) ---
+app.post('/api/pesanan/:id/review', (req, res) => {
+    const { id } = req.params;
+    const { rating, ulasan } = req.body;
+    
+    // Update kolom rating & ulasan di tabel pesanan
+    const sql = "UPDATE pesanan SET rating = $1, ulasan = $2 WHERE id = $3";
+    
+    pool.query(sql, [rating, ulasan, id], (err, result) => {
+        if (err) {
+            console.error("Error Review:", err);
+            return res.status(500).json({ success: false, message: "Gagal simpan ulasan" });
+        }
+        res.json({ success: true, message: "Ulasan berhasil disimpan!" });
     });
 });
 
