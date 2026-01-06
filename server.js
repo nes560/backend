@@ -1,15 +1,15 @@
-// BACKEND FINAL: INTEGRASI CLOUDINARY + POSTGRESQL (NEON)
+// BACKEND FINAL FIX: CLOUDINARY + HARDCODE DATABASE
 const express = require('express');
 const { Pool } = require('pg');
 const bodyParser = require('body-parser');
 const multer = require('multer'); 
 const cloudinary = require('cloudinary').v2;
-const streamifier = require('streamifier'); // Wajib install: npm install streamifier
+const streamifier = require('streamifier'); // Pastikan library ini ada di package.json
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- 1. KONFIGURASI CLOUDINARY (SESUAI DATA ANDA) ---
+// --- 1. KONFIGURASI CLOUDINARY (DATA ANDA) ---
 cloudinary.config({ 
   cloud_name: 'duf9khlya', 
   api_key: '427538359831592', 
@@ -32,7 +32,6 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // --- 4. KONFIGURASI MULTER (MEMORY STORAGE) ---
-// Kita simpan file di RAM sementara sebelum ke Cloudinary
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
@@ -40,7 +39,7 @@ const upload = multer({ storage: storage });
 const uploadToCloudinary = (buffer) => {
     return new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
-            { folder: "tukang_app_orders" }, // Nama folder di Cloudinary
+            { folder: "tukang_app_orders" },
             (error, result) => {
                 if (error) return reject(error);
                 resolve(result);
@@ -50,16 +49,17 @@ const uploadToCloudinary = (buffer) => {
     });
 };
 
-// --- 6. KONEKSI DATABASE (NEON) ---
+// --- 6. KONEKSI DATABASE (HARDCODED AGAR AMAN) ---
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    // 👇 KITA TULIS LANGSUNG LINKNYA AGAR TIDAK ERROR "ECONNREFUSED"
+    connectionString: 'postgresql://neondb_owner:npg_QJj2mwI8cPfT@ep-tiny-butterfly-adtgh2yw-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require',
     ssl: { rejectUnauthorized: false }
 });
 
 // ================= RUTE API =================
 
 app.get('/', (req, res) => {
-    res.send("Backend Tukang (Cloudinary Version) Siap!");
+    res.send("Backend Tukang (Cloudinary + Hardcode DB) Siap!");
 });
 
 // --- REGISTER ---
@@ -110,11 +110,11 @@ app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
         if (req.file) {
             console.log("Mulai upload ke Cloudinary...");
             const cloudResult = await uploadToCloudinary(req.file.buffer);
-            fotoUrl = cloudResult.secure_url; // Ambil Link Gambar
+            fotoUrl = cloudResult.secure_url; 
             console.log("Upload Berhasil:", fotoUrl);
         }
 
-        // Simpan ke Database (Link gambarnya saja)
+        // Simpan ke Database
         const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES ($1, $2, $3, $4, $5) RETURNING id";
         
         pool.query(sql, [nama_user, kategori, deskripsi, alamat, fotoUrl], (err, result) => {
@@ -127,7 +127,7 @@ app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
 
     } catch (error) {
         console.error("Upload Error:", error);
-        res.status(500).json({ success: false, message: "Gagal upload gambar ke server cloud" });
+        res.status(500).json({ success: false, message: "Gagal upload gambar: " + error.message });
     }
 });
 
@@ -136,9 +136,6 @@ app.get('/api/pesanan', (req, res) => {
     const sql = "SELECT * FROM pesanan ORDER BY id DESC"; 
     pool.query(sql, (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        
-        // Data foto_masalah sekarang berisi URL Cloudinary (https://res.cloudinary...)
-        // Jadi bisa langsung dipakai oleh Frontend tanpa perlu diubah
         res.json({ success: true, data: result.rows });
     });
 });
