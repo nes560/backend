@@ -1,4 +1,4 @@
-// BACKEND FINAL FIX: VARIABLE NAMES MATCH DATABASE
+// BACKEND FINAL FIX: ROUTE STATUS MATCHING FRONTEND
 const express = require('express');
 const { Pool } = require('pg');
 const bodyParser = require('body-parser');
@@ -58,7 +58,7 @@ const pool = new Pool({
 // ================= RUTE API =================
 
 app.get('/', (req, res) => {
-    res.send("Backend Tukang (Fix Variable Names) Siap!");
+    res.send("Backend Tukang (Route Status Fixed) Siap!");
 });
 
 // --- REGISTER ---
@@ -98,9 +98,8 @@ app.get('/api/tukang', (req, res) => {
     });
 });
 
-// --- BUAT PESANAN BARU (PERBAIKAN NAMA VARIABEL) ---
+// --- BUAT PESANAN BARU ---
 app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
-    // ✅ PERBAIKAN: Menggunakan nama variabel sesuai database dan frontend (kategori_jasa, deskripsi_masalah)
     const { nama_user, kategori_jasa, deskripsi_masalah, alamat } = req.body;
     
     try {
@@ -115,7 +114,6 @@ app.post('/api/pesanan', upload.single('foto'), async (req, res) => {
 
         const sql = "INSERT INTO pesanan (nama_user, kategori_jasa, deskripsi_masalah, alamat, foto_masalah) VALUES ($1, $2, $3, $4, $5) RETURNING id";
         
-        // ✅ PERBAIKAN: Memasukkan variabel yang benar ke query
         pool.query(sql, [nama_user, kategori_jasa, deskripsi_masalah, alamat, fotoUrl], (err, result) => {
             if (err) {
                 console.error("Database Error:", err);
@@ -150,8 +148,9 @@ app.get('/api/pesanan/:id', (req, res) => {
     });
 });
 
-// --- UPDATE STATUS ---
-app.put('/api/pesanan/:id', (req, res) => {
+// --- UPDATE STATUS (PERBAIKAN DISINI) ---
+// Menambahkan '/status' di akhir agar cocok dengan Frontend
+app.put('/api/pesanan/:id/status', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     const sql = "UPDATE pesanan SET status = $1 WHERE id = $2";
